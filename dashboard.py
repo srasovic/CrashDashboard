@@ -256,17 +256,21 @@ try:
 except Exception:
     hist = pd.DataFrame(columns=["date", "crash_probability"])
 
+# Record timestamp before saving snapshot
+now_cet = datetime.datetime.now(ZoneInfo("Europe/Amsterdam"))
+now_str = now_cet.strftime("%Y-%m-%d %H:%M %Z")
+
 # Convert crash_prob to plain int for JSON serialization
 try:
     safe_save_json(
         LAST_FILE,
         {
             "crash_probability": int(crash_prob),
-            "statuses": {
-                str(r["Signal"]): str(r["Status"]) for _, r in signals.iterrows()
-            },
+            "statuses": {r["Signal"]: r["Status"] for _, r in signals.iterrows()},
+            "timestamp": now_str,
         },
     )
+    
 except Exception as e:
     st.warning(f"⚠️ Could not save snapshot (serialization): {e}")
 
