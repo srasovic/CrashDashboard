@@ -6,6 +6,8 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import datetime, requests, os, json
+from zoneinfo import ZoneInfo
+
 
 # ---------- CONFIG ----------
 HISTORY_FILE = "crash_history.csv"
@@ -221,8 +223,9 @@ if crash_prob >= CRITICAL_THRESHOLD:
 else:
     st.success(f"✅ System Stable — Crash Probability {crash_prob}%{delta_txt}")
 
-# ---------- Display last status timestamp ----------
-last_update_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M CET")
+# ---------- Display last status timestamp (Europe/Amsterdam) ----------
+last_update_dt = datetime.datetime.now(ZoneInfo("Europe/Amsterdam"))
+last_update_str = last_update_dt.strftime("%Y-%m-%d %H:%M %Z")  # shows CET or CEST correctly
 st.markdown(
     f"<div style='text-align:right; font-size:14px; color:gray;'>🕒 Last Status at <b>{last_update_str}</b></div>",
     unsafe_allow_html=True,
