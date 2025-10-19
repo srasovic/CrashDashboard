@@ -15,7 +15,7 @@ CACHE_TTL = 900                # 15 minutes
 YIELD_RED_THRESHOLD = 0.50     # 10Y–2Y threshold for Red
 
 st.set_page_config(page_title="AI + Global Risk Dashboard", layout="wide")
-st.title("🌍 AI + Global Risk Dashboard — Final Stable Build")
+st.title("🌍 AI + Global Risk Dashboard")
 
 # ---------- UTILS ----------
 def safe_float(x):
