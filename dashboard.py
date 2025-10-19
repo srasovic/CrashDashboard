@@ -13,10 +13,15 @@ CRITICAL_THRESHOLD = 50  # %
 st.set_page_config(page_title="AI + Global Risk Dashboard", layout="wide")
 st.title("🌍 AI + Global Risk Dashboard (Live Sources)")
 
-# ---------- HELPER: Safe value parsing ----------
+# ---------- HELPER ----------
 def safe_float(v, default=None):
-    try: return round(float(v),2)
-    except Exception: return default
+    """Always return a float or default value."""
+    try:
+        if isinstance(v, pd.Series) or isinstance(v, list):
+            v = v.iloc[-1] if hasattr(v, "iloc") else v[-1]
+        return round(float(v), 2)
+    except Exception:
+        return default
 
 # ---------- FETCH DATA ----------
 @st.cache_data(ttl=3600)
@@ -32,21 +37,21 @@ def fetch_all_live():
     # --- VIX (Yahoo Finance)
     try:
         vix_data = yf.download("^VIX", period="5d", progress=False)
-        vix_val = safe_float(vix_data["Close"].dropna().iloc[-1], 22.0)
+        vix_val = safe_float(vix_data["Close"].dropna(), 22.0)
     except Exception:
         vix_val = 22.0
 
     # --- US 10Y-2Y Yield Spread (FRED CSV)
     try:
         fred = pd.read_csv("https://fred.stlouisfed.org/graph/fredgraph.csv?id=T10Y2Y")
-        yield_spread = safe_float(fred["T10Y2Y"].dropna().iloc[-1], -0.4)
+        yield_spread = safe_float(fred["T10Y2Y"].dropna(), -0.4)
     except Exception:
         yield_spread = -0.4
 
     # --- USD Reserve Share (IMF COFER table)
     try:
         html = requests.get("https://data.imf.org/regular.aspx?key=41175", timeout=15).text
-        match = re.search(r"US DOLLAR.*?(\d{1,2}\.\d)", html, re.I|re.S)
+        match = re.search(r"US DOLLAR.*?(\d{1,2}\.\d)", html, re.I | re.S)
         usd_share = safe_float(match.group(1)) if match else 58.0
     except Exception:
         usd_share = 58.0
@@ -58,35 +63,35 @@ def fetch_all_live():
     except Exception:
         ai_flows = "Inflows"
 
-    # --- Nasdaq Index (Yahoo Finance)
+    # --- NASDAQ Index change (Yahoo Finance)
     try:
-        nasdaq = yf.download("^IXIC", period="5d", progress=False)["Close"].iloc[-1]
-        nasdaq_chg = round(((nasdaq - yf.download("^IXIC", period="10d", progress=False)["Close"].iloc[0])/nasdaq)*100,2)
+        ixic = yf.download("^IXIC", period="10d", progress=False)["Close"].dropna()
+        nasdaq_chg = safe_float(((ixic.iloc[-1] - ixic.iloc[0]) / ixic.iloc[0]) * 100, 0.0)
     except Exception:
         nasdaq_chg = 0.0
 
-    # --- Gold Price (Yahoo Finance)
+    # --- Gold 10-day change (Yahoo Finance)
     try:
-        gold = yf.download("GC=F", period="5d", progress=False)["Close"].dropna().iloc[-1]
-        gold_chg = round(((gold - yf.download("GC=F", period="10d", progress=False)["Close"].iloc[0])/gold)*100,2)
+        gold = yf.download("GC=F", period="10d", progress=False)["Close"].dropna()
+        gold_chg = safe_float(((gold.iloc[-1] - gold.iloc[0]) / gold.iloc[0]) * 100, 0.0)
     except Exception:
         gold_chg = 0.0
 
-    # --- Oil Price (Yahoo Finance)
+    # --- Oil 10-day change (Yahoo Finance)
     try:
-        brent = yf.download("BZ=F", period="5d", progress=False)["Close"].dropna().iloc[-1]
-        oil_chg = round(((brent - yf.download("BZ=F", period="10d", progress=False)["Close"].iloc[0])/brent)*100,2)
+        oil = yf.download("BZ=F", period="10d", progress=False)["Close"].dropna()
+        oil_chg = safe_float(((oil.iloc[-1] - oil.iloc[0]) / oil.iloc[0]) * 100, 0.0)
     except Exception:
         oil_chg = 0.0
 
-    # --- Defense spending trend (proxy: ITA ETF price)
+    # --- Defense ETF (ITA)
     try:
         ita = yf.download("ITA", period="1mo", progress=False)["Close"].dropna()
-        def_spend_trend = round(((ita.iloc[-1]-ita.iloc[0])/ita.iloc[0])*100,2)
+        def_spend_trend = safe_float(((ita.iloc[-1] - ita.iloc[0]) / ita.iloc[0]) * 100, 0.0)
     except Exception:
         def_spend_trend = 0.0
 
-    # --- Geopolitical: placeholder sentiment feed (scrape from Google News headline)
+    # --- China–US sentiment proxy (Google News RSS)
     try:
         news = requests.get("https://news.google.com/rss/search?q=china+us+tension", timeout=10).text.lower()
         tension = "Tightened" if "tension" in news or "conflict" in news else "Stable"
@@ -94,11 +99,11 @@ def fetch_all_live():
         tension = "Tightened"
 
     return dict(
-        nvda_pe=nvda_pe, vix=vix_val, yield_spread=yield_spread, usd_share=usd_share,
-        ai_flows=ai_flows, nasdaq_chg=nasdaq_chg, gold_chg=gold_chg, oil_chg=oil_chg,
-        def_spend_trend=def_spend_trend, tension=tension
+        nvda_pe=nvda_pe, vix=vix_val, yield_spread=yield_spread,
+        usd_share=usd_share, ai_flows=ai_flows, nasdaq_chg=nasdaq_chg,
+        gold_chg=gold_chg, oil_chg=oil_chg, def_spend_trend=def_spend_trend,
+        tension=tension
     )
-
 
 data = fetch_all_live()
 
@@ -107,16 +112,18 @@ def classify_nvda_pe(v): return "Green" if v < 40 else "Amber" if v <= 55 else "
 def classify_vix(v): return "Green" if v < 20 else "Amber" if v <= 25 else "Red"
 def classify_yield(v): return "Red" if v >= 0.5 else "Amber"
 def classify_usd_share(v): return "Green" if v >= 57 else "Red"
-def classify_trend(v): return "Green" if v > 0 else "Red"
+def classify_trend(v): 
+    v = safe_float(v, 0)
+    return "Green" if v > 0 else "Red"
 def classify_tension(v): return "Amber" if "tight" in v.lower() else "Green"
 
-# ---------- TABLE ----------
+# ---------- BUILD TABLE ----------
 signals = pd.DataFrame([
     ["NVIDIA P/E ratio", data["nvda_pe"], classify_nvda_pe(data["nvda_pe"])],
     ["VIX Volatility Index", data["vix"], classify_vix(data["vix"])],
     ["Yield-curve (10Y-2Y)", data["yield_spread"], classify_yield(data["yield_spread"])],
     ["USD Reserve Share", f"{data['usd_share']}%", classify_usd_share(data["usd_share"])],
-    ["AI/Tech ETF fund flows", data["ai_flows"], "Green" if data["ai_flows"]=="Inflows" else "Red"],
+    ["AI/Tech ETF fund flows", data["ai_flows"], "Green" if data["ai_flows"] == "Inflows" else "Red"],
     ["NASDAQ 10-day change", f"{data['nasdaq_chg']}%", classify_trend(data["nasdaq_chg"])],
     ["Gold 10-day change", f"{data['gold_chg']}%", classify_trend(data["gold_chg"])],
     ["Oil (Brent) 10-day change", f"{data['oil_chg']}%", classify_trend(data["oil_chg"])],
@@ -124,10 +131,10 @@ signals = pd.DataFrame([
     ["China–US tension sentiment", data["tension"], classify_tension(data["tension"])],
 ], columns=["Signal", "Current", "Status"])
 
-# ---------- RISK CALC ----------
-num_amber = (signals.Status=="Amber").sum()
-num_red = (signals.Status=="Red").sum()
-crash_prob = min(10 + num_amber*5 + num_red*10, 100)
+# ---------- RISK ----------
+num_amber = (signals.Status == "Amber").sum()
+num_red = (signals.Status == "Red").sum()
+crash_prob = min(10 + num_amber * 5 + num_red * 10, 100)
 
 # ---------- ALERT ----------
 if crash_prob >= CRITICAL_THRESHOLD:
@@ -135,14 +142,16 @@ if crash_prob >= CRITICAL_THRESHOLD:
 else:
     st.success(f"✅ System Stable – Crash Probability {crash_prob}%")
 
-# ---------- DISPLAY ----------
-color_map = {"Green":"#00b050","Amber":"#ffc000","Red":"#c00000"}
-st.dataframe(signals.style.applymap(lambda s:f"color:{color_map.get(s,'black')}",subset=["Status"]),
-             use_container_width=True)
+# ---------- TABLE ----------
+color_map = {"Green": "#00b050", "Amber": "#ffc000", "Red": "#c00000"}
+st.dataframe(
+    signals.style.applymap(lambda s: f"color:{color_map.get(s, 'black')}", subset=["Status"]),
+    use_container_width=True,
+)
 
 # ---------- HISTORY ----------
 today = datetime.date.today().isoformat()
-new = pd.DataFrame([[today, crash_prob]], columns=["date","crash_probability"])
+new = pd.DataFrame([[today, crash_prob]], columns=["date", "crash_probability"])
 if os.path.exists(HISTORY_FILE):
     hist = pd.read_csv(HISTORY_FILE)
     hist = hist[hist["date"] != today]
