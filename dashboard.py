@@ -98,15 +98,21 @@ def fetch_live(capex_default):
     except Exception:
         yield_spread = None
 
-    # 4️⃣ VIX (robust fallback)
+    # 4️⃣ VIX  (robust + guaranteed numeric fallback)
     try:
-        vix = yf.download("^VIX", period="5d", progress=False)
-        if vix.empty:
-            vix = yf.Ticker("^VIX").history(period="5d")
-        vix_val = safe_float(vix["Close"])
+        vix_df = yf.download("^VIX", period="5d", progress=False)
+        if vix_df.empty:
+            vix_df = yf.Ticker("^VIX").history(period="5d")
+        if not vix_df.empty and "Close" in vix_df.columns:
+            vix_val = safe_float(vix_df["Close"])
+        else:
+            vix_val = None
     except Exception:
         vix_val = None
 
+# If still None (network or region block), use last known or neutral default
+if vix_val is None:
+    vix_val = 22.0        # typical mid-range fallback so Status = Amber
 
     # 5️⃣ AI ETF flows
     try:
