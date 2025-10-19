@@ -223,13 +223,19 @@ if crash_prob >= CRITICAL_THRESHOLD:
 else:
     st.success(f"✅ System Stable — Crash Probability {crash_prob}%{delta_txt}")
 
-# ---------- Display last status timestamp (Europe/Amsterdam) ----------
-last_update_dt = datetime.datetime.now(ZoneInfo("Europe/Amsterdam"))
-last_update_str = last_update_dt.strftime("%Y-%m-%d %H:%M %Z")  # shows CET or CEST correctly
-st.markdown(
-    f"<div style='text-align:right; font-size:14px; color:gray;'>🕒 Last Status at <b>{last_update_str}</b></div>",
-    unsafe_allow_html=True,
-)
+# ---------- Display last status timestamp (previous snapshot time) ----------
+last_timestamp = last.get("timestamp", None)
+if last_timestamp:
+    st.markdown(
+        f"<div style='text-align:right; font-size:14px; color:gray;'>🕒 Last Status at <b>{last_timestamp}</b></div>",
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        "<div style='text-align:right; font-size:14px; color:gray;'>🕒 Last Status at <b>—</b></div>",
+        unsafe_allow_html=True,
+    )
+
 
 
 # ---------- TABLE ----------
