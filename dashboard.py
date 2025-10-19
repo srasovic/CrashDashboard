@@ -98,14 +98,24 @@ def fetch_live(capex_default):
     except Exception:
         yield_spread = None
 
-    # 4️⃣ VIX (robust fallback)
+   # 4️⃣ VIX  (robust fetch + guaranteed fallback)
     try:
-        vix = yf.download("^VIX", period="5d", progress=False)
-        if vix.empty:
-            vix = yf.Ticker("^VIX").history(period="5d")
-        vix_val = safe_float(vix["Close"])
+        vix_df = yf.download("^VIX", period="5d", progress=False)
+        # if Yahoo blocks or returns empty DataFrame, try Ticker().history()
+        if vix_df is None or vix_df.empty or "Close" not in vix_df.columns:
+            alt_df = yf.Ticker("^VIX").history(period="5d")
+            vix_df = alt_df if alt_df is not None and not alt_df.empty else None
+    
+        # extract last valid close
+        vix_val = safe_float(vix_df["Close"]) if vix_df is not None and "Close" in vix_df.columns else None
+    
     except Exception:
         vix_val = None
+    
+    # if still None, set neutral default (so classifier always works)
+    if vix_val is None:
+        vix_val = 22.0  # typical mid-range → Amber
+
 
 
     # 5️⃣ AI ETF flows
