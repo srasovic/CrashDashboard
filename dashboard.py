@@ -1,5 +1,5 @@
 # ============================================================
-# 🌍 AI + Global Risk Dashboard — Final Stable Streamlit Build
+# 🌍 AI + Global Risk Dashboard
 # Identical logic to Replit version, safe I/O, consistent results
 # ============================================================
 import streamlit as st
