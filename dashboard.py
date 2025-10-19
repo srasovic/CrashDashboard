@@ -240,9 +240,17 @@ try:
 except Exception as e:
     st.warning(f"⚠️ Could not save snapshot (serialization): {e}")
 
-# ---------- TREND ----------
+# ---------- TREND (always live) ----------
 st.subheader("📈 Crash-Probability Trend")
-if not hist.empty:
-    st.line_chart(hist.set_index("date"))
+
+# Always reload from file to avoid cached dataframe
+try:
+    latest_hist = pd.read_csv(HISTORY_FILE)
+    latest_hist = latest_hist.drop_duplicates(subset=["date"], keep="last").sort_values("date")
+except Exception:
+    latest_hist = pd.DataFrame(columns=["date", "crash_probability"])
+
+if not latest_hist.empty:
+    st.line_chart(latest_hist.set_index("date"))
 else:
     st.info("No history yet — refresh once to start tracking trend.")
