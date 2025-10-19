@@ -125,12 +125,18 @@ def fetch_live(capex_default):
     except Exception:
         ai_flows = "Inflows"
 
-    # 9️⃣ Defense spending (ITA)
+    # 9️⃣ Defense spending (ITA %/mo); ensure scalar float, not Series
     try:
         ita = yf.download("ITA", period="1mo", progress=False)["Close"].dropna()
-        def_spend = round(((ita.iloc[-1] - ita.iloc[0]) / ita.iloc[0]) * 100, 2)
+        def_spend_val = ((ita.iloc[-1] - ita.iloc[0]) / ita.iloc[0]) * 100
+        # Convert any Series/numpy type to a clean Python float
+        if hasattr(def_spend_val, "item"):
+            def_spend = round(float(def_spend_val.item()), 2)
+        else:
+            def_spend = round(float(def_spend_val), 2)
     except Exception:
         def_spend = 12.0
+
 
     # 🔟 USD reserve share (static fallback)
     usd_share = 58.0
