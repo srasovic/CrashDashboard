@@ -273,3 +273,33 @@ if not latest_hist.empty:
     st.line_chart(latest_hist.set_index("date"))
 else:
     st.info("No history yet — refresh once to start tracking trend.")
+
+# ---------- EXPLANATION SECTION ----------
+st.markdown("---")
+st.subheader("📘 Signal Relevance & Impact on Risk")
+
+explanations = {
+    "NVIDIA P/E ratio":
+        "Tracks valuation of the leading AI semiconductor company. Elevated P/E (>55) suggests speculative overvaluation and signals potential AI bubble risk.",
+    "Hyperscaler Datacenter CapEx growth":
+        "Reflects infrastructure investment by major cloud providers. Strong, sustainable growth (>10%) supports real AI demand, while slowdown indicates overcapacity.",
+    "Yield-curve slope (10Y–2Y)":
+        "Monitors macroeconomic conditions. A steep positive curve (>0.5%) may signal overheating or inflationary risk; inversion usually warns of recessionary pressure.",
+    "VIX (Volatility Index)":
+        "Measures implied market volatility. Rising VIX (>25) reflects growing investor fear and short-term stress, while <20 indicates stable sentiment.",
+    "AI/Tech ETF fund flows":
+        "Shows capital inflows or outflows into AI-themed ETFs. Persistent inflows signal investor optimism; strong outflows indicate waning confidence.",
+    "China–US tension":
+        "Captures geopolitical friction between the two tech superpowers. Deterioration increases global supply-chain risk and market uncertainty.",
+    "Critical resources restrictions":
+        "Assesses trade limits on rare earths and key minerals. Tightening controls raise production costs and risk of global supply shocks.",
+    "Ukraine / Europe escalation":
+        "Reflects European security stability. Heightened tensions or conflict expansion increases regional economic and defense-related volatility.",
+    "Global defense spending (proxy: ITA %/mo)":
+        "Uses aerospace & defense ETF performance as a proxy for military spending trends. Rapid growth may indicate global instability and reallocation of resources away from growth sectors.",
+    "USD reserve share":
+        "Monitors the dollar's role in global reserves. A falling share signals de-dollarization and weaker global confidence in the US economy, raising systemic risk.",
+}
+
+for sig, desc in explanations.items():
+    st.markdown(f"**{sig}:** {desc}")
