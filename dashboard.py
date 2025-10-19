@@ -221,6 +221,14 @@ if crash_prob >= CRITICAL_THRESHOLD:
 else:
     st.success(f"✅ System Stable — Crash Probability {crash_prob}%{delta_txt}")
 
+# ---------- Display last status timestamp ----------
+last_update_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M CET")
+st.markdown(
+    f"<div style='text-align:right; font-size:14px; color:gray;'>🕒 Last Status at <b>{last_update_str}</b></div>",
+    unsafe_allow_html=True,
+)
+
+
 # ---------- TABLE ----------
 color_map = {"Green":"#00b050","Amber":"#ffc000","Red":"#c00000"}
 st.dataframe(
