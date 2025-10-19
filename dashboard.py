@@ -121,8 +121,17 @@ def c_vix(v):
     return "Green" if v < 20 else "Amber" if v <= 25 else "Red"
 def c_aiflows(s): return "Green" if s == "Inflows" else "Red"
 def c_fixed_amber(_): return "Amber"  # China–US, Critical, Ukraine → default Amber in Replit runs
-def c_def(v): 
-    if v is None: return "Green"
+def c_def(v):
+    # handle Series / list / None gracefully
+    import pandas as pd
+    try:
+        if isinstance(v, pd.Series):
+            v = float(v.dropna().iloc[-1])
+        elif isinstance(v, (list, tuple)):
+            v = float(v[-1])
+        v = float(v)
+    except Exception:
+        return "Green"     # default to Green if no valid numeric value
     return "Green" if v < 20 else "Red"
 def c_usd(v): return "Green" if v >= 57 else "Red"
 
