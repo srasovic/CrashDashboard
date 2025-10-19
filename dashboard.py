@@ -1,17 +1,20 @@
 # ============================================================
-# 🌍 AI + Global Risk Dashboard (Canonical 10 Signals + History)
+# 🌍 AI + Global Risk Dashboard (Canonical 10 Signals + History + Diffs)
 # - Manual "Refresh now" button
 # - Live data where feasible + safe fallbacks
-# - Thresholds aligned with earlier traffic lights
+# - Yield logic aligned with Replit (Red only if >= threshold; else Amber)
+# - Previous run comparison: Last Status + Change; probability delta
 # ============================================================
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import datetime, requests, re, os
+import datetime, requests, re, os, json
 
 HISTORY_FILE = "crash_history.csv"
-CRITICAL_THRESHOLD = 50  # % => red banner
-CACHE_TTL = 1800         # seconds (30 min)
+LAST_FILE = "last_snapshot.json"
+CRITICAL_THRESHOLD = 50     # % => red banner
+CACHE_TTL = 1800            # seconds (30 min)
+DEFAULT_YIELD_RED = 0.50    # 10y-2y steepening threshold for Red
 
 st.set_page_config(page_title="AI + Global Risk Dashboard", layout="wide")
 st.title("🌍 AI + Global Risk Dashboard")
@@ -38,9 +41,34 @@ def dedup_append_history(date_str, prob):
     hist.to_csv(HISTORY_FILE, index=False)
     return hist
 
+def load_last_snapshot():
+    if os.path.exists(LAST_FILE):
+        with open(LAST_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {"crash_probability": None, "statuses": {}}
+
+def save_last_snapshot(crash_prob, status_map):
+    data = {"crash_probability": crash_prob, "statuses": status_map}
+    with open(LAST_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+# ---------- Sidebar controls ----------
+with st.sidebar:
+    st.markdown("### ⚙️ Options")
+    force_refresh = st.button("🔄 Refresh now (pull live data, update history)")
+    st.caption("Click if values look stale or to force a new run.")
+    yield_avg = st.checkbox("Use 5-day average for yield spread", value=False)
+    yield_red_threshold = st.slider("Yield Red threshold (10y–2y, %)", 0.10, 1.00, DEFAULT_YIELD_RED, 0.05)
+    manual_capex = st.slider("Override Hyperscaler CapEx growth (%)", 0, 50, 35)
+    st.caption("CapEx has no stable free feed; override if you have a new datapoint.")
+    st.caption("Diffs vs last run are shown in the table as ▲ worsened / ▼ improved / • no change.")
+
+if force_refresh:
+    st.cache_data.clear()
+
 # ---------- Live fetch (cached) ----------
 @st.cache_data(ttl=CACHE_TTL)
-def fetch_live_signals():
+def fetch_live_signals(use_avg_for_yield: bool, yield_red: float):
     # 1) NVIDIA P/E (Yahoo)
     try:
         nvda = yf.Ticker("NVDA")
@@ -48,21 +76,24 @@ def fetch_live_signals():
     except Exception:
         nvda_pe = 55.0
 
-    # 2) Hyperscaler DC CapEx growth (no stable free API) -> use conservative fallback
-    #    You can override this from the sidebar slider if desired.
+    # 2) Hyperscaler DC CapEx growth (manual override later)
     capex_growth = 35.0  # %
 
     # 3) Yield-curve slope 10Y-2Y (FRED CSV)
     try:
         fred = pd.read_csv("https://fred.stlouisfed.org/graph/fredgraph.csv?id=T10Y2Y")
-        yield_spread = safe_float(fred["T10Y2Y"], -0.4)
+        series = fred["T10Y2Y"].dropna()
+        if use_avg_for_yield and len(series) >= 5:
+            yield_spread = safe_float(series.tail(5).mean(), -0.4)
+        else:
+            yield_spread = safe_float(series, -0.4)
     except Exception:
         yield_spread = -0.4
 
     # 4) VIX (Yahoo)
     try:
-        vix_data = yf.download("^VIX", period="5d", progress=False)
-        vix_val = safe_float(vix_data["Close"], 22.0)
+        vix = yf.download("^VIX", period="5d", progress=False)["Close"].dropna()
+        vix_val = safe_float(vix, 22.0)
     except Exception:
         vix_val = 22.0
 
@@ -73,24 +104,24 @@ def fetch_live_signals():
     except Exception:
         ai_flows = "Inflows"
 
-    # 6) China–US tension sentiment (very light heuristic via Google News RSS)
+    # 6) China–US tension (very light heuristic via Google News RSS)
     try:
         rss = requests.get("https://news.google.com/rss/search?q=china+us+tension", timeout=10).text.lower()
-        cn_us_tension = "Tightened" if ("tension" in rss or "sanction" in rss or "export control" in rss) else "Stable"
+        cn_us_tension = "Tightened" if any(k in rss for k in ["tension", "sanction", "export control"]) else "Stable"
     except Exception:
         cn_us_tension = "Tightened"
 
     # 7) Critical resources restrictions (rare earths/graphite) — heuristic
     try:
         rss2 = requests.get("https://news.google.com/rss/search?q=rare+earth+export+controls+graphite+restrictions", timeout=10).text.lower()
-        critical_resources = "Tightened" if ("control" in rss2 or "ban" in rss2 or "restriction" in rss2) else "Stable"
+        critical_resources = "Tightened" if any(k in rss2 for k in ["control", "ban", "restriction"]) else "Stable"
     except Exception:
         critical_resources = "Tightened"
 
     # 8) Ukraine/Europe escalation — heuristic
     try:
         rss3 = requests.get("https://news.google.com/rss/search?q=ukraine+europe+tension+nato+incident", timeout=10).text.lower()
-        ukraine_europe = "Tense" if ("tension" in rss3 or "escalation" in rss3 or "incident" in rss3) else "Stable"
+        ukraine_europe = "Tense" if any(k in rss3 for k in ["tension", "escalation", "incident"]) else "Stable"
     except Exception:
         ukraine_europe = "Tense"
 
@@ -113,6 +144,7 @@ def fetch_live_signals():
         "nvda_pe": nvda_pe,
         "capex_growth": capex_growth,
         "yield_spread": yield_spread,
+        "yield_red_threshold": yield_red,   # carry for classifiers
         "vix": vix_val,
         "ai_flows": ai_flows,
         "cn_us_tension": cn_us_tension,
@@ -122,23 +154,10 @@ def fetch_live_signals():
         "usd_share": usd_share,
     }
 
-# ---------- Sidebar overrides (optional) ----------
-with st.sidebar:
-    st.markdown("### ⚙️ Options")
-    force_refresh = st.button("🔄 Refresh now (pull live data, update history)")
-    st.caption("If a source is flaky, click to re-fetch and update the chart.")
-    manual_capex = st.slider("Override Hyperscaler CapEx growth (%)", 0, 50, 35)
-    st.caption("Leave at 35% unless you have a new datapoint.")
+data = fetch_live_signals(yield_avg, yield_red_threshold)
+data["capex_growth"] = float(manual_capex)  # apply override
 
-# On initial load OR when user clicks "Refresh now", clear cache to re-fetch
-if force_refresh:
-    st.cache_data.clear()
-
-data = fetch_live_signals()
-# Apply optional CapEx override
-data["capex_growth"] = float(manual_capex)
-
-# ---------- Classifiers (aligned with earlier traffic lights) ----------
+# ---------- Classifiers (aligned with Replit) ----------
 def classify_nvda_pe(v):
     # <40 green, 40–55 amber, >55 red
     return "Green" if v < 40 else "Amber" if v <= 55 else "Red"
@@ -147,9 +166,11 @@ def classify_vix(v):
     # <20 green, 20–25 amber, >25 red
     return "Green" if v < 20 else "Amber" if v <= 25 else "Red"
 
-def classify_yield_spread(v):
-    # We treat steepening >= +0.5 as Red; otherwise Amber (macro caution)
-    return "Red" if v is not None and v >= 0.5 else "Amber"
+def classify_yield_spread(v, threshold):
+    # Red only if >= threshold; else Amber (no Green), like Replit
+    if v is None:
+        return "Amber"
+    return "Red" if v >= threshold else "Amber"
 
 def classify_ai_flows(s):
     return "Green" if s == "Inflows" else "Red"
@@ -159,26 +180,23 @@ def classify_cn_us(s):
     return "Amber" if s.lower() != "stable" else "Green"
 
 def classify_critical(s):
-    # Default Amber unless clearly stable
     return "Amber" if s.lower() != "stable" else "Green"
 
 def classify_ukr(s):
-    # Default Amber unless clearly stable
     return "Amber" if s.lower() != "stable" else "Green"
 
 def classify_def_spend_trend(v):
-    # If sustained >+20% YoY we might worry; this proxy is monthly → keep simple
+    # If sustained >+20% YoY we'd worry; proxy is monthly -> simple rule
     return "Green" if v < 20 else "Red"
 
 def classify_usd_share(v):
-    # >=57% Green, else Red (matches prior logic)
     return "Green" if v >= 57 else "Red"
 
 # ---------- Build the canonical 10-signal table ----------
 rows = [
     ["NVIDIA P/E ratio", data["nvda_pe"], classify_nvda_pe(data["nvda_pe"])],
     ["Hyperscaler Datacenter CapEx growth", f"{data['capex_growth']}%", "Green" if data["capex_growth"] > 10 else "Amber"],
-    ["Yield-curve slope (10Y–2Y)", data["yield_spread"], classify_yield_spread(data["yield_spread"])],
+    ["Yield-curve slope (10Y–2Y)", data["yield_spread"], classify_yield_spread(data["yield_spread"], data["yield_red_threshold"])],
     ["VIX (Volatility Index)", data["vix"], classify_vix(data["vix"])],
     ["AI/Tech ETF fund flows", data["ai_flows"], classify_ai_flows(data["ai_flows"])],
     ["China–US tension", data["cn_us_tension"], classify_cn_us(data["cn_us_tension"])],
@@ -189,27 +207,58 @@ rows = [
 ]
 signals = pd.DataFrame(rows, columns=["Signal", "Current", "Status"])
 
-# ---------- Crash probability (same formula we used before) ----------
+# ---------- Load last snapshot for diffs ----------
+last = load_last_snapshot()
+last_prob = last.get("crash_probability")
+last_statuses = last.get("statuses", {})
+
+# Add last status + change markers
+def change_marker(prev, curr):
+    if prev is None:
+        return "•"
+    if prev == curr:
+        return "•"
+    # Worsening if moving toward Red; improving otherwise
+    order = {"Green": 0, "Amber": 1, "Red": 2}
+    return "▲" if order.get(curr,1) > order.get(prev,1) else "▼"
+
+signals["Last Status"] = [ last_statuses.get(s, None) for s in signals["Signal"] ]
+signals["Change"] = [ change_marker(p, c) for p, c in zip(signals["Last Status"], signals["Status"]) ]
+
+# ---------- Crash probability (same formula as before) ----------
 num_amber = int((signals["Status"] == "Amber").sum())
 num_red = int((signals["Status"] == "Red").sum())
 crash_prob = min(10 + num_amber * 5 + num_red * 10, 100)
 
 # ---------- Top alert/banner ----------
+delta_label = ""
+if last_prob is not None:
+    delta = crash_prob - float(last_prob)
+    arrow = "↑" if delta > 0 else "↓" if delta < 0 else "→"
+    delta_label = f" (Prev {last_prob:.0f}% {arrow} {abs(delta):.0f}pp)"
 if crash_prob >= CRITICAL_THRESHOLD:
-    st.error(f"🚨 **CRITICAL RISK — Crash Probability {crash_prob}% — ACTION REQUIRED**")
+    st.error(f"🚨 **CRITICAL RISK — Crash Probability {crash_prob}%**{delta_label} — **ACTION REQUIRED**")
 else:
-    st.success(f"✅ System Stable — Crash Probability {crash_prob}%")
+    st.success(f"✅ System Stable — Crash Probability {crash_prob}%{delta_label}")
 
 # ---------- Table (traffic-light colors) ----------
 color_map = {"Green": "#00b050", "Amber": "#ffc000", "Red": "#c00000"}
-styled = signals.style.applymap(lambda s: f"color:{color_map.get(s, 'black')}", subset=["Status"])
+styled = signals.style.applymap(lambda s: f"color:{color_map.get(s, 'black')}", subset=["Status"]) \
+                      .applymap(lambda s: f"color:{color_map.get(s, 'black')}", subset=["Last Status"]) \
+                      .applymap(lambda s: "font-weight:bold", subset=["Change"])
 st.dataframe(styled, use_container_width=True)
 
-# ---------- History (update on initial load and when user clicks Refresh) ----------
+# ---------- Persist current snapshot + history ----------
 today = datetime.date.today().isoformat()
 hist = dedup_append_history(today, crash_prob)
+# Save current statuses for next run comparison
+save_last_snapshot(crash_prob, {row["Signal"]: row["Status"] for _, row in signals.iterrows()})
 
+# ---------- Trend ----------
 st.subheader("📈 Crash-Probability Trend")
 st.line_chart(hist.set_index("date"))
 
-st.caption(f"Last updated {today}  |  Live sources where feasible: Yahoo Finance, FRED (CSV), IMF (scrape), ETF.com, Google News. CapEx uses manual override until a stable public feed is available.")
+st.caption(
+    f"Last updated {today} | Live sources where feasible: Yahoo Finance, FRED (CSV), "
+    f"IMF (scrape), ETF.com, Google News. Yield Red threshold = {data['yield_red_threshold']:.2f}%"
+)
