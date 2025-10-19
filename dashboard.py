@@ -212,15 +212,37 @@ st.dataframe(
     use_container_width=True
 )
 
-# ---------- SAVE ----------
+# ---------- SAVE & HISTORY (fixed state sync + serialization) ----------
+
 today = datetime.date.today().isoformat()
-hist = append_history(today, crash_prob)
-safe_save_json(LAST_FILE, {"crash_probability": crash_prob,
-                           "statuses": {r["Signal"]: r["Status"] for _, r in signals.iterrows()}})
+
+# Force cache clear so that next run reloads updated "Last Status"
+st.cache_data.clear()
+
+# Append new entry and re-read to refresh chart
+hist = append_history(today, int(crash_prob))
+try:
+    hist = pd.read_csv(HISTORY_FILE)
+except Exception:
+    hist = pd.DataFrame(columns=["date", "crash_probability"])
+
+# Convert crash_prob to plain int for JSON serialization
+try:
+    safe_save_json(
+        LAST_FILE,
+        {
+            "crash_probability": int(crash_prob),
+            "statuses": {
+                str(r["Signal"]): str(r["Status"]) for _, r in signals.iterrows()
+            },
+        },
+    )
+except Exception as e:
+    st.warning(f"⚠️ Could not save snapshot (serialization): {e}")
 
 # ---------- TREND ----------
 st.subheader("📈 Crash-Probability Trend")
-st.line_chart(hist.set_index("date"))
-
-st.caption("Data sources: Yahoo Finance (NVDA, VIX, ITA), FRED (10Y–2Y), ETF.com, manual inputs. "
-           "Logic identical to Replit: NVDA trailingPE, yield Red ≥ +0.50%, geopoliticals Amber, CapEx 35%, AI flows heuristic.")
+if not hist.empty:
+    st.line_chart(hist.set_index("date"))
+else:
+    st.info("No history yet — refresh once to start tracking trend.")
