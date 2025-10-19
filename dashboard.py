@@ -161,10 +161,15 @@ last_prob = last.get("crash_probability")
 last_map = last.get("statuses", {})
 
 def mark(prev, curr):
-    order = {"Green":0,"Amber":1,"Red":2}
-    if prev is None: return "•"
-    if prev == curr: return "•"
-    return "▲" if order[curr] > order[prev] else "▼"
+    order = {"Green": 0, "Amber": 1, "Red": 2}
+    if prev not in order or curr not in order:
+        return "•"  # dot = no comparable status
+    if order[curr] > order[prev]:
+        return "▲"
+    elif order[curr] < order[prev]:
+        return "▼"
+    else:
+        return "•"
 
 signals["Last Status"] = [ last_map.get(s, None) for s in signals["Signal"] ]
 signals["Change"] = [ mark(p, c) for p, c in zip(signals["Last Status"], signals["Status"]) ]
