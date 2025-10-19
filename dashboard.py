@@ -98,12 +98,15 @@ def fetch_live(capex_default):
     except Exception:
         yield_spread = None
 
-    # 4️⃣ VIX
+    # 4️⃣ VIX (robust fallback)
     try:
-        vix = yf.download("^VIX", period="5d", progress=False)["Close"].dropna()
-        vix_val = safe_float(vix)
+        vix = yf.download("^VIX", period="5d", progress=False)
+        if vix.empty:
+            vix = yf.Ticker("^VIX").history(period="5d")
+        vix_val = safe_float(vix["Close"])
     except Exception:
         vix_val = None
+
 
     # 5️⃣ AI ETF flows
     try:
